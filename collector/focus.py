@@ -110,11 +110,22 @@ def build_table(yrs, v, ye, shares, det):
     T("PBR", "밸류에이션", pbr, "배", 2)
     T("배당수익률", "밸류에이션", dyl, "%", 2)
     # 최근 열: 최근 4분기·현재가 기준
-    now = {"매출액": None, "영업이익": det.get("ttm", {}).get("op"), "순이익(지배)": det.get("ttm", {}).get("ni"),
+    now = {"매출액": det.get("ttm", {}).get("rev"), "영업이익": det.get("ttm", {}).get("op"), "순이익(지배)": det.get("ttm", {}).get("ni"),
            "영업이익률": det.get("opm"), "ROE": det.get("roe"), "EPS": det.get("eps"), "BPS": det.get("bps"),
            "연말 주가": det.get("price"), "PER": det.get("per"), "PBR": det.get("pbr"), "배당수익률": det.get("dy")}
     for r in rows:
         r["now"] = now.get(r["t"])
+    # 올해 분기 누적 열 (손익은 누적, 비율은 누적 기준, 부채비율은 분기말)
+    q = det.get("q") or {}
+    if q:
+        def pc(a, b):
+            return round(a / b * 100, 1) if a is not None and b else None
+        rv, op, ni = q.get("rev") or [None, None], q.get("op") or [None, None], q.get("ni") or [None, None]
+        qv = {"매출액": rv[0], "영업이익": op[0], "순이익(지배)": ni[0],
+              "매출 증가율": round((rv[0] / rv[1] - 1) * 100, 1) if rv[0] is not None and rv[1] else None,
+              "영업이익률": pc(op[0], rv[0]), "순이익률": pc(ni[0], rv[0]), "부채비율": q.get("debt")}
+        for r in rows:
+            r["q"] = qv.get(r["t"])
     return rows, per, pbr, dyl, eps, bps
 
 
@@ -302,6 +313,7 @@ def main():
             ye = year_end_prices(code, yrs)
             rows, per_h, pbr_h, dy_h, eps_h, bps_h = build_table(yrs, v, ye, shares, det)
             rec["years"], rec["table"] = yrs, rows
+            rec["qlab"] = (det.get("q") or {}).get("lab")
             eps_now = det.get("eps") if det.get("eps") is not None else eps_h[-1]
             bps_now = det.get("bps") if det.get("bps") is not None else bps_h[-1]
             rec["fv"] = fair_value(price, eps_now, bps_now, v["dps"][-1], per_h, pbr_h, dy_h)

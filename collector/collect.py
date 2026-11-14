@@ -680,7 +680,8 @@ def main():
         stage1.append(dict(code=code, corp=corp, name=name, market=mkt, price=price, mcap=mcap, sector=ks,
                            sector_name=SECTORS.get(ks, "기타"), rev=rev, op=op, ni=ni, eq=eq,
                            op_ttm=op_ttm, ni_ttm=ni_ttm, rev_ttm=rev_ttm, eq_now=eq_now,
-                           q_op=qv("op")[:2], q_ni=qv("ni")[:2], q_rev=qv("rev")[:2]))
+                           q_op=qv("op")[:2], q_ni=qv("ni")[:2], q_rev=qv("rev")[:2],
+                           q_bs={k: qv(k)[0] for k in ("assets", "liab", "equity")}))
     log(f"1차(영업흑자·자본잠식·관리종목) 통과: {len(stage1)}종목")
 
     # 5) 일봉 → 거래대금·추세
@@ -978,6 +979,15 @@ def main():
                 "po": r1(r["payout"], 0), "bon": r["bonus"], "pen": r["penalty"], "w": r["why"][0] if r["why"] else "",
                 "nw": len(r["warn"]), "f": [], "risk": bool(r["risk"])}
 
+    def qblock(r):
+        """최근 분기 누적 실적: [당기 누적, 전년 동기 누적] (억원)"""
+        if not qinfo or r["q_op"][0] is None:
+            return None
+        e = lambda v: [r1(x / 1e8, 0) if x is not None else None for x in v]
+        bs = r.get("q_bs") or {}
+        return {"lab": f"'{str(qinfo['year'])[2:]}.{qinfo['n']}Q", "rev": e(r["q_rev"]), "op": e(r["q_op"]), "ni": e(r["q_ni"]),
+                "debt": r1(bs["liab"] / bs["equity"] * 100, 0) if bs.get("liab") is not None and bs.get("equity") else None}
+
     def full(r):
         gr = r["growth"]
         return {"code": r["code"], "name": r["name"], "market": r["market"], "sector": r["sector_name"],
@@ -1001,7 +1011,9 @@ def main():
                 "op": [r1(x / 1e8, 0) if x is not None else None for x in r["op"]],
                 "ni": [r1(x / 1e8, 0) if x is not None else None for x in r["ni"]],
                 "ttm": {"op": r1(r["op_ttm"] / 1e8, 0) if r["op_ttm"] is not None else None,
-                        "ni": r1(r["ni_ttm"] / 1e8, 0) if r["ni_ttm"] is not None else None}}
+                        "ni": r1(r["ni_ttm"] / 1e8, 0) if r["ni_ttm"] is not None else None,
+                        "rev": r1(r["rev_ttm"] / 1e8, 0) if r["rev_ttm"] is not None else None},
+                "q": qblock(r)}
 
     for r in stage2:
         universe_out[r["code"]] = brief(r)
