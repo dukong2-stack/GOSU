@@ -283,8 +283,8 @@ function overlaps(res){
   const g = new Set(res.slice(0,30).map(x => x.code)), d = dvMap(), b = badak();
   const nm = c => U?.u?.[c]?.n || d[c]?.n || b[c]?.name || nameOf(c);
   const all = [...g].filter(c => d[c] && b[c]);
-  const gd = [...g].filter(c => d[c] && !b[c]), gb = [...g].filter(c => b[c] && !d[c]);
-  const db = Object.keys(d).filter(c => b[c] && !g.has(c));
+  const gd = [...g].filter(c => d[c]), gb = [...g].filter(c => b[c]);
+  const db = Object.keys(d).filter(c => b[c]);
   return {all, gd, gb, db, nm, g, d, b};
 }
 function heldSet(){ return new Set(hold.get().map(h => h.code)); }
@@ -330,10 +330,10 @@ let OVOPEN = true;
 function overlapCard(res){
   if(!B && !DV) return "";
   const o = overlaps(res);
-  const line = (lab, arr, cls) => `<b class="${cls||""}">${lab} ${arr.length}</b><span class="nms">${arr.length ? arr.map(c => `<button data-ov="${c}">${esc(o.nm(c))}</button>`).join("") : `<span class="note">없음</span>`}</span>`;
+  const line = (lab, arr, cls) => `<b class="${cls||""}">${lab} ${arr.length}</b><span class="nms">${arr.length ? arr.map(c => `<button data-ov="${c}" ${o.all.includes(c)?'style="background:#F6E7C1;border-color:#E3C67A;color:#8A5A00;font-weight:600"':""}>${esc(o.nm(c))}</button>`).join("") : `<span class="note">없음</span>`}</span>`;
   return `<details class="cond" id="ovBox" ${OVOPEN?"open":""}><summary>세 앱에서 겹치는 종목 <small>${o.all.length ? `3앱 공통 ${o.all.length}종목` : "3앱 공통 없음"}</small></summary>
     <div class="ov">${line("세 앱 모두", o.all)}${line("고수 + 배당", o.gd)}${line("고수 + 바닥", o.gb)}${line("배당 + 바닥", o.db)}</div>
-    <p class="note" style="margin:8px 0 0">고수 = 지금 조건의 상위 30종목 · 배당 = 배당가치 노트 후보 ${DV ? (DV.candidates||[]).length+"종목" : "(자료 없음)"} · 바닥 = 바닥 신호 단계 ①~③ ${B ? Object.keys(o.b).length+"종목" : "(자료 없음)"}. 조건을 바꾸면 고수 쪽 목록도 바뀝니다.</p></details>`;
+    <p class="note" style="margin:8px 0 0">고수 = 지금 조건의 상위 30종목 · 배당 = 배당가치 노트 후보 ${DV ? (DV.candidates||[]).length+"종목" : "(자료 없음)"} · 바닥 = 바닥 신호 단계 ①~③ ${B ? Object.keys(o.b).length+"종목" : "(자료 없음)"}. 두 앱 겹침에는 세 앱 공통 종목(금색)도 포함됩니다. 조건을 바꾸면 고수 쪽 목록도 바뀝니다.</p></details>`;
 }
 function condPanel(){
   const C = COND, tot = Object.values(C.w).reduce((a,b)=>a+b,0);
