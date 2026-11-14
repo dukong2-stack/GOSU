@@ -431,7 +431,7 @@ async function getFocus(code){
 let CURC = null;
 async function openDetail(code){
   CUR = code; DTAB = "요약"; CURC = findCand(code);
-  $("#sh-title").textContent = nameOf(code); $("#sh-body").innerHTML = `<div class="empty">불러오는 중…</div>`; $("#sheet").classList.add("on");
+  $("#sh-title").textContent = nameOf(code); $("#sh-body").innerHTML = `<div class="empty">불러오는 중…</div>`; showSheet();
   if(!CURC && U?.u?.[code]?.p){ if(!D){ try{ D = await getJSON("data/details.json"); }catch(e){ D = {}; } } CURC = D[code] || null; }
   await getFocus(code);
   renderDetail(); $("#sh-body").scrollTop = 0;
@@ -517,7 +517,13 @@ function newsHTML(f, code){
     ${ns.map(n => `<a class="it" href="${n.u}" target="_blank" rel="noopener">${esc(n.t)}<small>${esc(n.by)} · ${esc(n.d)}</small></a>`).join("") || `<p class="note">최근 뉴스가 없습니다.</p>`}</div></div>
     ${linksHTML(code, null)}`;
 }
-function closeDetail(){ $("#sheet").classList.remove("on"); }
+function showSheet(){
+  if(!$("#sheet").classList.contains("on")){ try{ history.pushState({sheet:1}, ""); }catch(e){} }
+  $("#sheet").classList.add("on");
+}
+function hideSheet(){ $("#sheet").classList.remove("on"); }
+function closeDetail(){ if(history.state && history.state.sheet) history.back(); else hideSheet(); }
+window.addEventListener("popstate", () => hideSheet());
 $("#back").onclick = closeDetail;
 document.addEventListener("keydown", e => { if(e.key==="Escape") closeDetail(); });
 function detailHTML(c, extra=""){
@@ -647,9 +653,16 @@ function renderWatch(){
     <p class="lede">후보 목록이나 종목 화면의 ☆를 누르면 여기에 모입니다. 종목을 누르면 5년 재무표, 공시, 리포트, 뉴스를 볼 수 있습니다.</p>
     ${al.length ? `<div class="block"><h3>최근 알림 <small>관심·보유 종목</small></h3>${al.map(a => `<div class="alert"><b>${esc(a.n)} · ${esc(a.k)}</b><span>${a.d}</span><span>${esc(a.t)}</span></div>`).join("")}</div>` : ""}
     ${ws.length ? `<div class="list">${rows}</div>` : `<div class="empty">아직 관심 종목이 없습니다.</div>`}
-    <p class="note" style="margin-top:10px">${sy.token ? `저장소 동기화 켜짐 · ${sy.last ? `마지막 반영 ${sy.last}` : "아직 반영 전"}${sy.err?` · <span style="color:var(--up)">${esc(sy.err)}</span>`:""}` : "저장소 동기화가 꺼져 있어 새 관심 종목의 재무표·공시·뉴스는 수집되지 않습니다. 기준 탭에서 설정하세요."}</p>`;
+    ${syncNote(ws, sy)}`;
   el.querySelectorAll(".hrow[data-code]").forEach(r => r.onclick = () => openDetail(r.dataset.code));
   el.querySelectorAll("[data-unw]").forEach(b => b.onclick = e => { e.stopPropagation(); toggleWatch(b.dataset.unw); });
+}
+
+function syncNote(ws, sy){
+  if(sy.token) return `<p class="note" style="margin-top:10px">저장소 동기화 켜짐 · ${sy.last ? `마지막 반영 ${sy.last}` : "아직 반영 전"}${sy.err?` · <span style="color:var(--up)">${esc(sy.err)}</span>`:""}</p>`;
+  const miss = ws.filter(w => !FI[w.code]);  // 상위 30위 밖이라 재무표·공시·뉴스를 모으지 않는 관심 종목
+  if(!miss.length) return "";
+  return `<p class="note" style="margin-top:10px">${miss.map(w => esc(nameOf(w.code))).join(", ")}은(는) 기본 순위 상위 30위 밖이라 재무표·공시·뉴스를 모으지 않습니다. 모으려면 기준 탭에서 저장소 동기화를 켜세요.</p>`;
 }
 
 /* ── 저장소 동기화 (관심·보유 종목코드만 watch.json으로) ── */
