@@ -582,6 +582,9 @@ def pct(x, d=1):
 PKEYS = ("magic", "graham", "fscore", "growth", "trend", "dividend")
 
 
+T0 = time.time()
+
+
 def main():
     if not DART_KEY:
         sys.exit("[중단] DART_API_KEY가 없습니다. 저장소 Settings → Secrets에 OpenDART 인증키를 등록하세요.")
@@ -892,21 +895,36 @@ def main():
         rec["score"] = min(100.0, sum(W.get(k, 0) * rec[f"s_{k}"] for k in PKEYS) / sum(W.values()) + rec["bonus"])
         rec["penalty"], rec["risk"] = 0, []
 
-    # 8) 상위권 위험 공시 확인 (최근 3년)
+    # 8) 위험 공시 확인 (최근 3년) — 종목별로 30일마다 나눠서 갱신, 하루 갱신 수·시간 상한
     stage2.sort(key=lambda r: -r["score"])
-    rcache = load_cache("risk")
+    raw = load_cache("risk")
+    rcache = {}
+    for k, v in raw.items():  # 예전 형식(법인코드_연월) 변환
+        if isinstance(v, dict) and "d" in v:
+            rcache[k] = v
+        elif "_" in k:
+            rcache[k.split("_")[0]] = {"d": k.split("_")[1] + "01", "r": v}
     end = NOW.strftime("%Y%m%d"); bgn = (NOW - dt.timedelta(days=365 * 3)).strftime("%Y%m%d")
-    for i, rec in enumerate(stage2[:CFG["risk_check_top"] or len(stage2)], 1):
-        if i % 100 == 0:
-            save_cache("risk", rcache); log(f"  위험 공시 {i}")
-        key = f"{rec['corp']}_{end[:6]}"
-        if key not in rcache:
-            rcache[key] = risk_history(rec["corp"], bgn, end)
-        rec["risk"] = rcache[key]
+    stale = (NOW - dt.timedelta(days=CFG.get("risk_refresh_days", 30))).strftime("%Y%m%d")
+    targets = stage2[:CFG["risk_check_top"] or len(stage2)]
+    todo = [r for r in targets if r["corp"] not in rcache or rcache[r["corp"]]["d"] < stale]
+    todo.sort(key=lambda r: (r["corp"] in rcache, -r["score"]))  # 처음 보는 종목·상위 종목 먼저
+    limit = CFG.get("risk_max_per_run", 250)
+    done = 0
+    for rec in todo:
+        if done >= limit or time.time() - T0 > CFG.get("time_budget_min", 100) * 60:
+            log(f"  위험 공시: 오늘은 {done}종목만 갱신 (나머지 {len(todo) - done}종목은 다음 실행에서)")
+            break
+        rcache[rec["corp"]] = {"d": end, "r": risk_history(rec["corp"], bgn, end)}
+        done += 1
+        if done % 50 == 0:
+            save_cache("risk", rcache); log(f"  위험 공시 {done}/{min(limit, len(todo))}")
+    for rec in targets:
+        rec["risk"] = (rcache.get(rec["corp"]) or {}).get("r", [])
         if rec["risk"]:
             rec["penalty"] = CFG["risk_penalty"]
             rec["score"] = max(0.0, rec["score"] - rec["penalty"])
-    save_cache("risk", {k: v for k, v in rcache.items() if k.endswith(end[:6])})
+    save_cache("risk", rcache)
     stage2.sort(key=lambda r: -r["score"])
     for k, rec in enumerate(stage2, 1):
         rec["rank"] = k
