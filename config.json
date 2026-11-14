@@ -40,5 +40,8 @@
   "risk_penalty": 15,
   "top_n": 30,
   "others_n": 70,
-  "_위험공시": "risk_check_top: 0이면 평가 종목 전체의 최근 3년 위험 공시를 확인(월 1회 새로 조회)"
+  "_위험공시": "risk_check_top 0 = 평가 종목 전체. 종목마다 risk_refresh_days일마다 다시 확인하고, 한 번 실행에 최대 risk_max_per_run종목·time_budget_min분까지만 조회",
+  "risk_refresh_days": 30,
+  "risk_max_per_run": 250,
+  "time_budget_min": 100
 }
