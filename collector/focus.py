@@ -172,43 +172,88 @@ def _txt(h):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
 
 
+DIAG = {"reports": 0, "news": 0}
+
+
+def _diag(kind, html):
+    """처음 한 번만, 결과가 0건일 때 응답 모양을 로그에 남긴다 (형식 변경 확인용)."""
+    if DIAG[kind]:
+        return
+    DIAG[kind] = 1
+    hrefs = re.findall(r'href="([^"]{0,120})"', html)[:8]
+    C.log(f"  [{kind} 0건 진단] 응답 {len(html)}자, 링크 예시: {hrefs}")
+
+
+def _walk(o):
+    if isinstance(o, dict):
+        yield o
+        for v in o.values():
+            yield from _walk(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _walk(v)
+
+
 def reports(code):
+    out = []
     try:
         r = C.naver_get("https://finance.naver.com/research/company_list.naver", {"searchType": "itemCode", "itemCode": code, "page": 1})
+        html = r.content.decode("euc-kr", errors="replace")
     except Exception:  # noqa: BLE001
-        return []
-    html = r.content.decode("euc-kr", errors="replace")
-    out = []
+        html = ""
     for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
-        m = re.search(r'href="(company_read\.naver\?nid=(\d+)[^"]*)"[^>]*>(.*?)</a>', tr, re.S)
+        m = re.search(r'href="[^"]*company_read\.naver\?nid=(\d+)[^"]*"[^>]*>(.*?)</a>', tr, re.S)
         if not m:
             continue
         tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
-        pdf = re.search(r'href="(https?://[^"]+\.pdf)"', tr)
+        pdf = re.search(r'href="(https?://[^"]+\.pdf)"', tr, re.I)
         date = next((_txt(t) for t in tds if re.fullmatch(r"\d{2}\.\d{2}\.\d{2}", _txt(t))), "")
         broker = _txt(tds[2]) if len(tds) > 2 else ""
-        out.append({"t": _txt(m.group(3)), "by": broker, "d": date,
-                    "u": f"https://m.stock.naver.com/research/company/{m.group(2)}",
+        out.append({"t": _txt(m.group(2)), "by": broker, "d": date,
+                    "u": f"https://finance.naver.com/research/company_read.naver?nid={m.group(1)}",
                     "pdf": pdf.group(1) if pdf else None})
+    if not out:
+        _diag("reports", html)
     return out[:15]
 
 
 def news(code):
-    try:
-        r = C.naver_get("https://finance.naver.com/item/news_news.naver", {"code": code, "page": 1, "sm": "title_entity_id.basic", "clusterId": ""})
-    except Exception:  # noqa: BLE001
-        return []
-    html = r.content.decode("euc-kr", errors="replace")
     out, seen = [], set()
+    # 1) 네이버 금융 종목 뉴스 (HTML)
+    try:
+        r = C.S.get("https://finance.naver.com/item/news_news.naver", params={"code": code, "page": 1, "clusterId": ""}, timeout=20,
+                    headers={**C.NHDR, "Referer": f"https://finance.naver.com/item/news.naver?code={code}"})
+        html = r.content.decode("euc-kr", errors="replace")
+    except Exception:  # noqa: BLE001
+        html = ""
     for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
-        m = re.search(r'href="[^"]*article_id=(\d+)&(?:amp;)?office_id=(\d+)[^"]*"[^>]*>(.*?)</a>', tr, re.S)
-        if not m or m.group(1) in seen:
+        m = re.search(r'href="[^"]*?article_id=(\d+)(?:&|&amp;)office_id=(\d+)[^"]*"[^>]*>(.*?)</a>', tr, re.S) or \
+            re.search(r'href="[^"]*?office_id=(\d+)(?:&|&amp;)article_id=(\d+)[^"]*"[^>]*>(.*?)</a>', tr, re.S)
+        if not m:
             continue
-        seen.add(m.group(1))
-        src = re.search(r'class="info"[^>]*>(.*?)<', tr, re.S)
-        dd = re.search(r'class="date"[^>]*>(.*?)<', tr, re.S)
+        aid, oid = (m.group(1), m.group(2)) if "article_id=" + m.group(1) in m.group(0) else (m.group(2), m.group(1))
+        if aid in seen:
+            continue
+        seen.add(aid)
+        src = re.search(r'class="info"[^>]*>(.*?)</td>', tr, re.S)
+        dd = re.search(r'class="date"[^>]*>(.*?)</td>', tr, re.S)
         out.append({"t": _txt(m.group(3)), "by": _txt(src.group(1)) if src else "", "d": _txt(dd.group(1)) if dd else "",
-                    "u": f"https://n.news.naver.com/mnews/article/{m.group(2)}/{m.group(1)}"})
+                    "u": f"https://n.news.naver.com/mnews/article/{oid}/{aid}"})
+    # 2) 모바일 증권 API (JSON) — 1)이 비었을 때
+    if not out:
+        try:
+            j = C.S.get(f"https://m.stock.naver.com/api/news/stock/{code}", params={"pageSize": 20, "page": 1}, timeout=20, headers=C.NHDR).json()
+            for o in _walk(j):
+                aid, oid, t = o.get("articleId"), o.get("officeId"), o.get("title") or o.get("titleFull")
+                if aid and oid and t and aid not in seen:
+                    seen.add(aid)
+                    dtm = str(o.get("datetime") or o.get("dt") or "")
+                    out.append({"t": _txt(t), "by": o.get("officeName") or "", "d": f"{dtm[:4]}.{dtm[4:6]}.{dtm[6:8]}" if len(dtm) >= 8 else dtm,
+                                "u": f"https://n.news.naver.com/mnews/article/{oid}/{aid}"})
+        except Exception:  # noqa: BLE001
+            pass
+    if not out:
+        _diag("news", html)
     return out[:20]
 
 
@@ -321,7 +366,8 @@ def main():
         except Exception as e:  # noqa: BLE001
             C.log(f"  알림 메일 실패: {e}")
     C.write_json(DATA / "alerts.json", alerts[:100])
-    C.log(f"완료: 상세 {len(idx)}종목, 알림 {len(events)}건 (DART 호출 {C.CALLS['dart']}회)")
+    nn = sum(1 for v in idx.values() if v["nn"]); nr = sum(1 for v in idx.values() if v["nr"])
+    C.log(f"완료: 상세 {len(idx)}종목 (뉴스 있음 {nn}, 리포트 있음 {nr}), 알림 {len(events)}건 (DART 호출 {C.CALLS['dart']}회)")
 
 
 if __name__ == "__main__":
