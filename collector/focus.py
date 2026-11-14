@@ -313,7 +313,9 @@ def main():
             ye = year_end_prices(code, yrs)
             rows, per_h, pbr_h, dy_h, eps_h, bps_h = build_table(yrs, v, ye, shares, det)
             rec["years"], rec["table"] = yrs, rows
-            rec["qlab"] = (det.get("q") or {}).get("lab")
+            dq = det.get("q") or {}
+            rec["qlab"] = dq.get("lab")
+            rec["qi"] = {k: dq.get(k) for k in ("lab", "n", "y", "lag")} if dq else None
             eps_now = det.get("eps") if det.get("eps") is not None else eps_h[-1]
             bps_now = det.get("bps") if det.get("bps") is not None else bps_h[-1]
             rec["fv"] = fair_value(price, eps_now, bps_now, v["dps"][-1], per_h, pbr_h, dy_h)

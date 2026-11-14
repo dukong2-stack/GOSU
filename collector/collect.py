@@ -320,10 +320,15 @@ def company(corp, cache):
     return out
 
 
-def quarter_candidates():
-    md = NOW.month * 100 + NOW.day
-    return [x for x in ((NOW.year, "11014", "3분기보고서", 3, 1101), (NOW.year, "11012", "반기보고서", 2, 801),
-                        (NOW.year, "11013", "1분기보고서", 1, 501)) if md >= x[4]]
+def quarter_candidates(Y):
+    """기준 사업연도 Y 다음 해의 분기보고서 중 공시가 시작됐을 시기인 것 (최신순).
+    1~3월에는 Y가 전전년이므로 전년 3분기 누적까지 쓰게 된다."""
+    yy = Y + 1
+    out = []
+    for rc, lb, n, md in (("11014", "3분기", 3, 1020), ("11012", "반기", 2, 720), ("11013", "1분기", 1, 420)):
+        if dt.date(yy, md // 100, md % 100) <= NOW.date():
+            out.append((yy, rc, lb, n))
+    return out
 
 
 
@@ -634,13 +639,24 @@ def main():
     # 3) 주요계정 6개년 + 최근 분기 누적
     fa = multi_accounts(corps, Y, "11011")
     fb = multi_accounts(corps, Y - 3, "11011")
-    qinfo, qd = None, {}
-    for (yy, rc, lb, n_, _) in quarter_candidates():
-        d = multi_accounts(corps, yy, rc)
-        if sum(1 for c in corps if (d.get(c) or {}).get("op")) >= len(corps) * 0.3:
-            qinfo, qd = {"year": yy, "label": lb.replace("보고서", ""), "n": n_}, d
+    # 회사마다 가장 최근에 공시한 분기보고서를 쓴다 (3분기 → 반기 → 1분기)
+    qsel, qcount, remaining = {}, [], set(corps)
+    for (yy, rc, lb, n_) in quarter_candidates(Y):
+        if not remaining:
             break
-    log(f"최근 분기: {qinfo['year']}년 {qinfo['label']}" if qinfo else "최근 분기 자료 없음 — 연간 기준만 사용")
+        d = multi_accounts(sorted(remaining), yy, rc)
+        info = {"year": yy, "label": lb, "n": n_, "lab": f"'{str(yy)[2:]}.{n_}Q"}
+        got = 0
+        for c in list(remaining):
+            q = d.get(c) or {}
+            if q.get("op") and q["op"][0] is not None and q.get("fs") == (fa.get(c) or {}).get("fs"):
+                qsel[c] = (info, q); remaining.discard(c); got += 1
+        qcount.append((info, got))
+        log(f"  {yy}년 {lb}보고서 기준: {got}종목")
+    qinfo = next((i for i, g in qcount if g >= len(corps) * 0.3), max(qcount, key=lambda x: x[1])[0] if qcount else None)
+    if qinfo:
+        qinfo = {**qinfo, "counts": {i["lab"]: g for i, g in qcount}}
+    log(f"최근 분기(대표): {qinfo['year']}년 {qinfo['label']} · 분기 실적 없음 {len(remaining)}종목" if qinfo else "최근 분기 자료 없음 — 연간 기준만 사용")
 
     # 4) 1차 거르기 (망할 회사·거래 안 되는 회사)
     stage1 = []
@@ -651,8 +667,8 @@ def main():
         ni = series(a, fb.get(corp), "ni")
         rev = series(a, fb.get(corp), "rev")
         eq = series(a, fb.get(corp), "equity")
-        q = qd.get(corp) or {}
-        same_fs = q.get("fs") == a.get("fs")
+        qi, q = qsel.get(corp, (None, {}))
+        same_fs = bool(q) and q.get("fs") == a.get("fs")
         def ttm(k, annual):
             v = q.get(k)
             if not same_fs or not v or annual is None or v[0] is None or v[1] is None:
@@ -681,7 +697,7 @@ def main():
                            sector_name=SECTORS.get(ks, "기타"), rev=rev, op=op, ni=ni, eq=eq,
                            op_ttm=op_ttm, ni_ttm=ni_ttm, rev_ttm=rev_ttm, eq_now=eq_now,
                            q_op=qv("op")[:2], q_ni=qv("ni")[:2], q_rev=qv("rev")[:2],
-                           q_bs={k: qv(k)[0] for k in ("assets", "liab", "equity")}))
+                           q_bs={k: qv(k)[0] for k in ("assets", "liab", "equity")}, qi=qi))
     log(f"1차(영업흑자·자본잠식·관리종목) 통과: {len(stage1)}종목")
 
     # 5) 일봉 → 거래대금·추세
@@ -981,11 +997,13 @@ def main():
 
     def qblock(r):
         """최근 분기 누적 실적: [당기 누적, 전년 동기 누적] (억원)"""
-        if not qinfo or r["q_op"][0] is None:
+        qi = r.get("qi")
+        if not qi or r["q_op"][0] is None:
             return None
         e = lambda v: [r1(x / 1e8, 0) if x is not None else None for x in v]
         bs = r.get("q_bs") or {}
-        return {"lab": f"'{str(qinfo['year'])[2:]}.{qinfo['n']}Q", "rev": e(r["q_rev"]), "op": e(r["q_op"]), "ni": e(r["q_ni"]),
+        return {"lab": qi["lab"], "n": qi["n"], "y": qi["year"], "lag": bool(qinfo and qi["lab"] != qinfo["lab"]),
+                "rev": e(r["q_rev"]), "op": e(r["q_op"]), "ni": e(r["q_ni"]),
                 "debt": r1(bs["liab"] / bs["equity"] * 100, 0) if bs.get("liab") is not None and bs.get("equity") else None}
 
     def full(r):
