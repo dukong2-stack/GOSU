@@ -497,10 +497,10 @@ function tableHTML(f){
   if(!f.table) return `<div class="empty">재무표를 만들지 못했습니다.</div>`;
   let g = "";
   const cell = (x, r) => x==null ? "-" : (r.u==="억"||r.u==="원") ? Math.round(x).toLocaleString() : x.toLocaleString(undefined,{maximumFractionDigits:2});
-  const rows = f.table.map(r => { let pre = ""; if(r.g!==g){ g = r.g; pre = `<tr class="grp"><td colspan="${f.years.length+1}">${g}</td></tr>`; }
-    return pre + `<tr><td>${esc(r.t)}<small>${r.u}</small></td>${r.v.slice(1).map(x => `<td class="${x<0?"neg":""}">${cell(x,r)}</td>`).join("")}<td class="now ${r.now<0?"neg":""}">${cell(r.now,r)}</td></tr>`; }).join("");
-  return `<div class="block" style="padding:12px 10px"><div style="overflow-x:auto"><table class="t5"><tr><th></th>${f.years.slice(1).map(y => `<th>'${String(y).slice(2)}</th>`).join("")}<th>최근</th></tr>${rows}</table></div>
-    <p class="note" style="margin:8px 4px 0">최근 = 최근 4개 분기 합계 또는 현재가 기준. 과거 EPS·BPS·PER·PBR은 현재 주식수로 계산해서 증자·액면분할이 있었다면 차이가 납니다. ${f.updated} 수집.</p></div>`;
+  const rows = f.table.map(r => { let pre = ""; if(r.g!==g){ g = r.g; pre = `<tr class="grp"><td colspan="${f.years.length+(f.qlab?2:1)}">${g}</td></tr>`; }
+    return pre + `<tr><td>${esc(r.t)}<small>${r.u}</small></td>${r.v.slice(1).map(x => `<td class="${x<0?"neg":""}">${cell(x,r)}</td>`).join("")}${f.qlab?`<td class="now ${r.q<0?"neg":""}">${cell(r.q,r)}</td>`:""}<td class="now ${r.now<0?"neg":""}">${cell(r.now,r)}</td></tr>`; }).join("");
+  return `<div class="block" style="padding:12px 10px"><div style="overflow-x:auto"><table class="t5"><tr><th></th>${f.years.slice(1).map(y => `<th>'${String(y).slice(2)}</th>`).join("")}${f.qlab?`<th>${f.qlab}</th>`:""}<th>최근</th></tr>${rows}</table></div>
+    <p class="note" style="margin:8px 4px 0">${f.qlab?`${f.qlab} = 올해 분기 누적(손익·이익률·매출 증가율은 전년 동기 대비, 부채비율은 분기말). `:"올해 분기 실적은 분기보고서 공시 후 반영됩니다. "}최근 = 최근 4개 분기 합계 또는 현재가 기준. 과거 EPS·BPS·PER·PBR은 현재 주식수로 계산해서 증자·액면분할이 있었다면 차이가 납니다. ${f.updated} 수집.</p></div>`;
 }
 function discHTML(f, code, c){
   const ds = f.disc || [];
@@ -526,6 +526,11 @@ function closeDetail(){ if(history.state && history.state.sheet) history.back();
 window.addEventListener("popstate", () => hideSheet());
 $("#back").onclick = closeDetail;
 document.addEventListener("keydown", e => { if(e.key==="Escape") closeDetail(); });
+const yoyTxt = v => v && v[0]!=null && v[1] ? `${v[0]>=v[1]?"+":""}${((v[0]/Math.abs(v[1])-1)*100).toFixed(0)}%` : "-";
+function finq(lab, arr, qv){
+  const td = x => `<td class="${x<0?"neg":""}">${x==null?"-":Math.round(x).toLocaleString()}</td>`;
+  return `<tr><td>${lab}</td>${arr.slice(2).map(td).join("")}${td(qv?.[0])}${td(qv?.[1])}</tr>`;
+}
 function detailHTML(c, extra=""){
   const b = badak()[c.code], g = c.growth, m = c.magic, W = COND.w, u = U?.u?.[c.code], dv = c.div;
   const mine = u ? results().find(x => x.code===c.code) : null;
@@ -559,9 +564,10 @@ function detailHTML(c, extra=""){
     <p class="note" style="margin:6px 0 0">3년 주당배당금 성장률 ${dv.g==null?"-":dv.g+"%"}</p></div>` : ""}
   <div class="block"><h3>추세 (오닐) <small>${Math.round(c.parts.trend)}점</small></h3>${spark(c.spark)}${checks(c.titems)}</div>
   <div class="block"><h3>실적 추이 <small>억원</small></h3>
-    <div style="overflow-x:auto"><table class="fin"><tr><th></th>${c.years.map(y => `<th>${String(y).slice(2)}</th>`).join("")}<th>4Q</th></tr>
-    ${fin("매출액", c.rev, null)}${fin("영업이익", c.op, c.ttm.op)}${fin("순이익", c.ni, c.ttm.ni)}</table></div>
-    <p class="note" style="margin:6px 0 0">4Q = ${q?`${q.year}년 ${q.label}까지 `:""}최근 4개 분기 합계 · PER ${c.per??"-"} · PBR ${c.pbr??"-"} · 배당수익률 ${c.dy??0}% · 거래대금 ${c.tv??"-"}억/일</p></div>
+    <div style="overflow-x:auto"><table class="fin"><tr><th></th>${c.years.slice(2).map(y => `<th>'${String(y).slice(2)}</th>`).join("")}<th>${c.q?c.q.lab:"분기"}<br><small class="note">누적</small></th><th>전년<br><small class="note">동기</small></th></tr>
+    ${finq("매출액", c.rev, c.q?.rev)}${finq("영업이익", c.op, c.q?.op)}${finq("순이익", c.ni, c.q?.ni)}
+    <tr><td>이익률</td>${c.years.slice(2).map((y,i) => { const r = c.rev[i+2], o = c.op[i+2]; return `<td>${r&&o!=null?(o/r*100).toFixed(1)+"%":"-"}</td>`; }).join("")}<td>${c.q?.rev?.[0]&&c.q?.op?.[0]!=null?(c.q.op[0]/c.q.rev[0]*100).toFixed(1)+"%":"-"}</td><td>${c.q?.rev?.[1]&&c.q?.op?.[1]!=null?(c.q.op[1]/c.q.rev[1]*100).toFixed(1)+"%":"-"}</td></tr></table></div>
+    <p class="note" style="margin:6px 0 0">${c.q ? `${c.q.lab} 누적 = 올해 1월~${q?.n*3||9}월 합계, 전년 동기 = 작년 같은 기간 (영업이익 ${yoyTxt(c.q.op)}) · 이익률 = 영업이익률` : "올해 분기보고서가 아직 반영되지 않았습니다 (공시 후 다음 수집 때 반영)"} · PER·PBR은 최근 4개 분기 기준 · PER ${c.per??"-"} · PBR ${c.pbr??"-"} · 배당수익률 ${c.dy??0}% · 거래대금 ${c.tv??"-"}억/일</p></div>
   <div class="links"><button class="btn pri" id="addHold">보유에 추가</button>
     <a class="btn" href="https://m.stock.naver.com/domestic/stock/${c.code}/total" target="_blank" rel="noopener">네이버 증권</a>
     <a class="btn" href="https://dart.fss.or.kr/dsab007/main.do?option=corp&textCrpNm=${encodeURIComponent(c.name)}" target="_blank" rel="noopener">DART 공시</a>
