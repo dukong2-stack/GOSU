@@ -64,6 +64,12 @@ nav.tabs button[aria-selected=true]::before{content:"";position:absolute;top:-1p
 .row .why{font-size:13px;opacity:.88}
 .tag{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:2px;font-weight:500}
 .t-성장{color:var(--ok)} .t-정체{color:var(--muted)} .t-하향{color:var(--up)} .t-held{color:var(--navy)}
+.bd.dv{background:#E3EEF6;color:#2F6D93}
+.bd.all{background:#F6E7C1;color:#8A5A00}
+.ov{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13px;align-items:start;margin-top:8px}
+.ov b{white-space:nowrap}
+.ov .nms{display:flex;flex-wrap:wrap;gap:4px 6px}
+.ov .nms button{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:1px 7px;font-size:12.5px}
 .bd{font-size:11px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:2px;background:var(--ok-bg);color:var(--ok);font-weight:600}
 .flag{font-size:11px;color:var(--warn);margin-left:6px;vertical-align:1px}
 .segbar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--sunk)}
@@ -222,13 +228,13 @@ const PRESETS = {
   "성장·모멘텀": {w:{magic:20,graham:10,fscore:15,growth:30,trend:25,dividend:0}, tags:["성장"]},
 };
 const BASE = {preset:"기본(가치·안전)", w:{...PRESETS["기본(가치·안전)"].w}, bonus:true, pen:true, mkt:"전체",
-  div:{on:false,y:3,c:5,cut:1}, tags:[], fmin:0, permax:"", pbrmax:"", mcmin:"", ma:false, badak:false, norisk:false};
+  div:{on:false,y:3,c:5,cut:1}, tags:[], fmin:0, permax:"", pbrmax:"", mcmin:"", ma:false, badak:false, dv:false, norisk:false};
 const CK = "gosu-cond";
 let COND = (() => { try{ return {...BASE, ...JSON.parse(localStorage.getItem(CK)||"{}")}; }catch(e){ return {...BASE}; } })();
 const saveCond = () => { try{ localStorage.setItem(CK, JSON.stringify(COND)); }catch(e){} };
 function applyPreset(name){ const p = PRESETS[name]; COND = {...BASE, preset:name, w:{...p.w}, div:{...BASE.div, ...(p.div||{})}, tags:[...(p.tags||[])]}; saveCond(); }
 const STG = {1:"① 과매도", 2:"② 바닥 형성", 3:"③ 전환 확인"};
-let L=null, U=null, P=null, H=[], B=null, SNAP=[], D=null, SHOWN=30, PANEL=false, FI={}, SEC={}, AL=[], DTAB="요약", CUR=null;
+let DV=null, L=null, U=null, P=null, H=[], B=null, SNAP=[], D=null, SHOWN=30, PANEL=false, FI={}, SEC={}, AL=[], DTAB="요약", CUR=null;
 const FC = {};
 const HK = "gosu-holdings", WK = "gosu-watch", SK = "gosu-sync";
 const store = k => ({ get(){ try{ return JSON.parse(localStorage.getItem(k)||"[]"); }catch(e){ return []; } },
@@ -256,6 +262,7 @@ async function load(){
   [L, U, P, H, FI, SEC, AL] = res.map(x => x.status==="fulfilled" ? x.value : null);
   H = H || []; FI = FI || {}; SEC = SEC || {}; AL = AL || [];
   try{ B = await getJSON("../badak/data/latest.json"); }catch(e){ B = null; }
+  try{ DV = await getJSON("../divnote/data/latest.json"); }catch(e){ DV = null; }
   $("#asof").textContent = L ? `주가 ${fmtDate(L.price_date)} 기준` : "데이터 없음";
   const snaps = await Promise.allSettled(H.slice(0, 12).map(m => getJSON(`data/history/${m}.json`).then(j => ({m, ...j}))));
   SNAP = snaps.filter(x => x.status==="fulfilled").map(x => x.value);
@@ -271,6 +278,15 @@ function toggleWatch(code){
   watch.set(v); queueSync(); renderAll(); return i < 0;
 }
 function badak(){ const m={}; (B?.items||[]).forEach(i => { if((i.stage||0)>=1) m[i.code]=i; }); return m; }
+function dvMap(){ const m={}; (DV?.candidates||[]).forEach((c,i) => { m[c.code] = {n:c.name, rk:i+1}; }); return m; }
+function overlaps(res){
+  const g = new Set(res.slice(0,30).map(x => x.code)), d = dvMap(), b = badak();
+  const nm = c => U?.u?.[c]?.n || d[c]?.n || b[c]?.name || nameOf(c);
+  const all = [...g].filter(c => d[c] && b[c]);
+  const gd = [...g].filter(c => d[c] && !b[c]), gb = [...g].filter(c => b[c] && !d[c]);
+  const db = Object.keys(d).filter(c => b[c] && !g.has(c));
+  return {all, gd, gb, db, nm, g, d, b};
+}
 function heldSet(){ return new Set(hold.get().map(h => h.code)); }
 function priceOf(code){ return P?.p?.[code]?.[1] ?? U?.u?.[code]?.c ?? null; }
 function nameOf(code){ return U?.u?.[code]?.n || P?.p?.[code]?.[0] || code; }
@@ -298,6 +314,7 @@ function passes(u, code, bm){
   if(n(C.mcmin)!=null && !((u.mc||0) >= n(C.mcmin))) return false;
   if(C.ma && u.ma!==true) return false;
   if(C.badak && !bm[code]) return false;
+  if(C.dv && !dvMap()[code]) return false;
   if(C.norisk && u.risk) return false;
   return true;
 }
@@ -306,9 +323,18 @@ function results(){
   return Object.entries(U?.u||{}).filter(([c,u]) => u.p && !(u.f||[]).length && passes(u, c, bm))
     .map(([code,u]) => ({code, u, sc:scoreOf(u)})).sort((a,b) => b.sc - a.sc).map((x,i) => ({...x, rk:i+1}));
 }
-function nFilters(){ const C = COND; return [C.mkt!=="전체", C.div.on, C.tags.length, C.fmin, C.permax!=="", C.pbrmax!=="", C.mcmin!=="", C.ma, C.badak, C.norisk].filter(Boolean).length; }
+function nFilters(){ const C = COND; return [C.mkt!=="전체", C.div.on, C.tags.length, C.fmin, C.permax!=="", C.pbrmax!=="", C.mcmin!=="", C.ma, C.badak, C.dv, C.norisk].filter(Boolean).length; }
 
 /* ── 후보 ── */
+let OVOPEN = true;
+function overlapCard(res){
+  if(!B && !DV) return "";
+  const o = overlaps(res);
+  const line = (lab, arr, cls) => `<b class="${cls||""}">${lab} ${arr.length}</b><span class="nms">${arr.length ? arr.map(c => `<button data-ov="${c}">${esc(o.nm(c))}</button>`).join("") : `<span class="note">없음</span>`}</span>`;
+  return `<details class="cond" id="ovBox" ${OVOPEN?"open":""}><summary>세 앱에서 겹치는 종목 <small>${o.all.length ? `3앱 공통 ${o.all.length}종목` : "3앱 공통 없음"}</small></summary>
+    <div class="ov">${line("세 앱 모두", o.all)}${line("고수 + 배당", o.gd)}${line("고수 + 바닥", o.gb)}${line("배당 + 바닥", o.db)}</div>
+    <p class="note" style="margin:8px 0 0">고수 = 지금 조건의 상위 30종목 · 배당 = 배당가치 노트 후보 ${DV ? (DV.candidates||[]).length+"종목" : "(자료 없음)"} · 바닥 = 바닥 신호 단계 ①~③ ${B ? Object.keys(o.b).length+"종목" : "(자료 없음)"}. 조건을 바꾸면 고수 쪽 목록도 바뀝니다.</p></details>`;
+}
 function condPanel(){
   const C = COND, tot = Object.values(C.w).reduce((a,b)=>a+b,0);
   const chk = (id, on, lab) => `<label class="opt"><input type="checkbox" data-k="${id}" ${on?"checked":""}>${lab}</label>`;
@@ -333,6 +359,7 @@ function condPanel(){
     <h4>시점·위험</h4>
     ${chk("ma", C.ma, "200일선 위 종목만 (상승 추세)")}
     ${chk("badak", C.badak, "바닥 신호 단계(①~③) 종목만" + (B ? "" : " — 바닥 신호 앱 자료 없음"))}
+    ${chk("dv", C.dv, "배당가치 노트 후보 종목만" + (DV ? "" : " — 배당가치 노트 자료 없음"))}
     ${chk("norisk", C.norisk, "최근 3년 위험 공시 종목 제외")}
     <div class="links"><button class="btn" id="condReset">기본으로 되돌리기</button></div>
   </details>`;
@@ -340,20 +367,21 @@ function condPanel(){
 function renderCand(){
   const el = $("#p-cand");
   if(!L || !U){ el.innerHTML = `<div class="empty">아직 수집 결과가 없습니다.<br>저장소 Actions에서 collect를 실행해 주세요.</div>`; return; }
-  const bm = badak(), held = heldSet(), ws = watchSet(), res = results();
+  const bm = badak(), held = heldSet(), ws = watchSet(), res = results(), dm = dvMap(), top30 = new Set(res.slice(0,30).map(x => x.code));
   const rows = res.slice(0, SHOWN);
   el.innerHTML = `
     <h2>전문가 방식 조건 검색</h2>
     <p class="lede">${L.counts.universe.toLocaleString()}종목 중 걸러내기를 통과한 ${L.counts.scored.toLocaleString()}종목에서 조건을 조합해 찾습니다.</p>
     <div class="chips">${Object.keys(PRESETS).map(p => `<button class="chip" aria-pressed="${p===COND.preset}" data-p="${p}">${p}</button>`).join("")}</div>
     ${condPanel()}
+    ${overlapCard(res)}
     <p class="sumline"><b style="color:var(--ink)">${res.length.toLocaleString()}종목</b> · ${esc(COND.preset)}${nFilters()?` · 필터 ${nFilters()}개`:""}</p>
     ${legend()}
     <div class="list">${rows.map(({code,u,sc,rk}) => {
       const b = bm[code];
       return `<div class="row" role="button" tabindex="0" data-code="${code}">
         <span class="rk">${rk}</span>
-        <span><span class="nm">${esc(u.n)}</span><span class="tag t-${u.tag}">${u.tag}</span>${held.has(code)?`<span class="tag t-held">보유</span>`:""}${b?`<span class="bd">${STG[b.stage]}</span>`:""}${u.nw?`<span class="flag">⚠ ${u.nw}</span>`:""}
+        <span><span class="nm">${esc(u.n)}</span><span class="tag t-${u.tag}">${u.tag}</span>${held.has(code)?`<span class="tag t-held">보유</span>`:""}${top30.has(code)&&dm[code]&&b?`<span class="bd all">3앱 공통</span>`:""}${dm[code]?`<span class="bd dv">배당 ${dm[code].rk}위</span>`:""}${b?`<span class="bd">${STG[b.stage]}</span>`:""}${u.nw?`<span class="flag">⚠ ${u.nw}</span>`:""}
           <div class="meta">${u.m} · ${esc(u.s)} · PER ${u.per??"-"} · PBR ${u.pbr??"-"}${u.F!=null?` · F ${u.F}/9`:""}${u.dy?` · 배당 ${u.dy}%${u.dc?`(${u.dc}년)`:""}`:""}</div></span>
         <span class="sc">${Math.round(sc)}<span>점</span></span>
         <span class="body">${segbar(u)}<span class="why" style="padding-right:26px">${esc(u.w||"")}</span></span>
@@ -363,6 +391,8 @@ function renderCand(){
     <p class="note" style="margin-top:12px">금융업은 마법공식 대상이 아니어서 제외했습니다. 조건은 이 폰에 저장되어 다음에 열 때도 유지됩니다.</p>`;
   const rerender = () => { SHOWN = 30; saveCond(); const y = el.scrollTop; renderCand(); el.scrollTop = y; };
   el.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { applyPreset(b.dataset.p); SHOWN = 30; renderCand(); });
+  el.querySelectorAll("[data-ov]").forEach(b => b.onclick = () => openDetail(b.dataset.ov));
+  const ob = $("#ovBox"); if(ob) ob.ontoggle = e => { OVOPEN = e.target.open; };
   el.querySelectorAll("[data-code]").forEach(b => { b.onclick = () => openDetail(b.dataset.code); b.onkeydown = e => { if(e.key==="Enter") openDetail(b.dataset.code); }; });
   el.querySelectorAll("[data-star]").forEach(b => b.onclick = e => { e.stopPropagation(); const y = el.scrollTop; toggleWatch(b.dataset.star); el.scrollTop = y; });
   $("#condBox").ontoggle = e => { PANEL = e.target.open; };
@@ -503,6 +533,7 @@ function detailHTML(c, extra=""){
     <div class="bars">${PARTS.map(([k,n,v]) => `<div class="bar" style="${W[k]?"":"opacity:.45"}"><span>${n}</span><span class="tr"><b style="width:${c.parts[k]??0}%;background:var(${v})"></b></span><span>${Math.round(c.parts[k]??0)}</span></div>`).join("")}</div>
     ${c.bonus||c.penalty ? `<p class="note" style="margin:10px 0 0">${c.bonus?`배당 가점 +${c.bonus}`:""}${c.bonus&&c.penalty?" · ":""}${c.penalty?`위험 공시 감점 −${c.penalty}`:""}</p>`:""}
   </div>
+  ${dvMap()[c.code] ? `<div class="okbox" style="background:#E3EEF6;color:#2F6D93"><p><b>배당가치 노트 후보 ${dvMap()[c.code].rk}위</b> — 배당 기준으로도 선정된 종목입니다.</p></div>` : ""}
   ${b ? `<div class="okbox"><p><b>바닥 신호 ${STG[b.stage]}</b> — 바닥 신호 점수 ${Math.round(b.score)}점${b.since?`, ${fmtDate(b.since)} 진입`:""}. 좋은 회사가 매수 타이밍 구간에 있습니다.</p></div>` : ""}
   <div class="block"><h3>선정 이유</h3><ul class="why">${c.why.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
   ${c.warn.length ? `<div class="warnbox">${c.warn.map(x => `<p>⚠ ${esc(x)}</p>`).join("")}</div>` : ""}
