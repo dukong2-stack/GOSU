@@ -1,0 +1,44 @@
+{
+  "_설명": "숫자만 바꾸고 저장하면 다음 수집부터 반영됩니다. 시가총액·거래대금은 억원, 비율은 % 단위입니다.",
+  "min_mcap_eok": 1000,
+  "include_kosdaq": true,
+  "exclude_sectors": [
+    "64",
+    "65",
+    "66"
+  ],
+  "min_trading_value_eok": 1,
+  "weights": {
+    "magic": 30,
+    "graham": 30,
+    "fscore": 20,
+    "growth": 10,
+    "trend": 10,
+    "dividend": 0
+  },
+  "dividend_bonus": {
+    "yield_full": 3.0,
+    "yield_half": 1.5,
+    "points": 5
+  },
+  "graham": {
+    "max_per": 15,
+    "max_pbr": 1.5,
+    "max_per_x_pbr": 22.5,
+    "min_current_ratio": 2.0,
+    "min_profit_growth": 15
+  },
+  "peg": {
+    "best": 0.5,
+    "worst": 2.0
+  },
+  "trend": {
+    "near_high": 85,
+    "stop_loss": 8
+  },
+  "risk_check_top": 0,
+  "risk_penalty": 15,
+  "top_n": 30,
+  "others_n": 70,
+  "_위험공시": "risk_check_top: 0이면 평가 종목 전체의 최근 3년 위험 공시를 확인(월 1회 새로 조회)"
+}
