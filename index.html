@@ -466,8 +466,11 @@ async function openTong(name){
   try{ await navigator.clipboard.writeText(name); }catch(e){}
   if(/Android/i.test(navigator.userAgent)){
     toast(`"${name}" 복사됨 — 증권통 검색창에 붙여넣기 하세요`);
-    const fb = encodeURIComponent(`https://play.google.com/store/apps/details?id=${TONG_PKG}`);
-    setTimeout(() => { location.href = `intent://#Intent;package=${TONG_PKG};S.browser_fallback_url=${fb};end`; }, 600);
+    // 웹 페이지(플레이스토어 등)로 빠지지 않고 설치된 증권통 앱만 실행
+    const a = document.createElement("a");
+    a.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${TONG_PKG};launchFlags=0x10000000;end`;
+    a.rel = "noopener"; document.body.appendChild(a);
+    setTimeout(() => { a.click(); a.remove(); }, 300);
   } else {
     toast(`"${name}" 복사됨 — 증권통 앱을 열어 검색창에 붙여넣기 하세요`);
   }
